@@ -1,31 +1,20 @@
-from pathlib import Path
-import re
+import urllib.request
+import xml.etree.ElementTree as ET
+import os, json, re, html
 from datetime import datetime, timezone
+from pathlib import Path
+import hashlib
 
-BASE_URL = "https://evankang1.github.io/blog-mirror/"
-today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+BLOG_ID = "kevin-story2009"
+RSS_URL = f"https://rss.blog.naver.com/{BLOG_ID}.xml"
+BASE_DIR = Path(__file__).resolve().parent.parent
+POSTS_DIR = BASE_DIR / "posts"
+POSTS_INDEX_FILE = BASE_DIR / "posts_index.json"
+INDEX_FILE = BASE_DIR / "index.html"
+SITEMAP_FILE = BASE_DIR / "sitemap.xml"
+ROBOTS_FILE = BASE_DIR / "robots.txt"
+GITHUB_PAGES_BASE = "https://evankang1.github.io/blog-mirror/"
 
-posts = sorted(Path("posts").glob("*.html"), reverse=True)
-ids = []
-for p in posts:
-    m = re.search(r"(\d+)", p.stem)
-    if m:
-        ids.append(m.group(1))
-
-# 1. 깨끗하게 쓰기
-sitemap_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
-sitemap_content += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-sitemap_content += f'  <url><loc>{BASE_URL}</loc><lastmod>{today}</lastmod></url>\n'
-for pid in ids:
-    sitemap_content += f'  <url><loc>{BASE_URL}posts/{pid}.html</loc><lastmod>{today}</lastmod></url>\n'
-sitemap_content += '</urlset>\n'
-
-# 2. 혹시 모를 script 태그 강제 제거
-sitemap_content = re.sub(r'<script[^>]*/?>\s*', '', sitemap_content)
-sitemap_content = sitemap_content.replace('</script>', '')
-
-<<<<<<< HEAD
-<<<<<<< HEAD
 def clean_html(raw_desc):
     # Naver RSS description contains HTML, keep it but strip excessive scripts
     # Remove CDATA wrapper if present
@@ -189,13 +178,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-=======
-Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
-Path(".nojekyll").touch()
-print(f"Generated {len(ids)} urls, .nojekyll created")
->>>>>>> c3c6f0de6d220acc73a108bec5dd565e85cca52e
-=======
-Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
-Path(".nojekyll").touch()
-print(f"Generated {len(ids)} urls, .nojekyll created")
->>>>>>> c3c6f0de6d220acc73a108bec5dd565e85cca52e
