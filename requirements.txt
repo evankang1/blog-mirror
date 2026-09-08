@@ -1,0 +1,2 @@
+# Python standard library is used
+# No external dependencies required for sync.py
