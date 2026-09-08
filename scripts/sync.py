@@ -1,4 +1,3 @@
-
 from pathlib import Path
 import re
 from datetime import datetime, timezone
@@ -7,14 +6,24 @@ BASE_URL = "https://evankang1.github.io/blog-mirror/"
 today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 posts = sorted(Path("posts").glob("*.html"), reverse=True)
-ids = [re.search(r"(\d+)", p.stem).group(1) for p in posts if re.search(r"(\d+)", p.stem)]
+ids = []
+for p in posts:
+    m = re.search(r"(\d+)", p.stem)
+    if m:
+        ids.append(m.group(1))
 
-with open("sitemap.xml", "w", encoding="utf-8") as f:
-    f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-    f.write('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
-    f.write(f'  <url><loc>{BASE_URL}</loc><lastmod>{today}</lastmod></url>\n')
-    for pid in ids:
-        f.write(f'  <url><loc>{BASE_URL}posts/{pid}.html</loc><lastmod>{today}</lastmod></url>\n')
-    f.write('</urlset>\n')
+# 1. 깨끗하게 쓰기
+sitemap_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
+sitemap_content += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+sitemap_content += f'  <url><loc>{BASE_URL}</loc><lastmod>{today}</lastmod></url>\n'
+for pid in ids:
+    sitemap_content += f'  <url><loc>{BASE_URL}posts/{pid}.html</loc><lastmod>{today}</lastmod></url>\n'
+sitemap_content += '</urlset>\n'
 
+# 2. 혹시 모를 script 태그 강제 제거
+sitemap_content = re.sub(r'<script[^>]*/?>\s*', '', sitemap_content)
+sitemap_content = sitemap_content.replace('</script>', '')
+
+Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
 Path(".nojekyll").touch()
+print(f"Generated {len(ids)} urls, .nojekyll created")
