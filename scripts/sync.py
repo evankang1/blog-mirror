@@ -159,8 +159,18 @@ def make_sitemap(items, base_url):
     if not base_url.endswith("/"):
         base_url += "/"
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    urls = []
-    urls.append(f"  <url><loc>{base_url}</loc><lastmod>{now_iso}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>")
+
+    ET.register_namespace("", "http://www.sitemaps.org/schemas/sitemap/0.9")
+    urlset = ET.Element("{http://www.sitemaps.org/schemas/sitemap/0.9}urlset")
+
+    def add_url(loc, lastmod, changefreq, priority):
+        url = ET.SubElement(urlset, "{http://www.sitemaps.org/schemas/sitemap/0.9}url")
+        ET.SubElement(url, "{http://www.sitemaps.org/schemas/sitemap/0.9}loc").text = loc
+        ET.SubElement(url, "{http://www.sitemaps.org/schemas/sitemap/0.9}lastmod").text = lastmod
+        ET.SubElement(url, "{http://www.sitemaps.org/schemas/sitemap/0.9}changefreq").text = changefreq
+        ET.SubElement(url, "{http://www.sitemaps.org/schemas/sitemap/0.9}priority").text = priority
+
+    add_url(base_url, now_iso, "daily", "1.0")
     for it in items:
         loc = f"{base_url}posts/{it['log_no']}.html"
         # try parse pubDate to iso
@@ -171,14 +181,9 @@ def make_sitemap(items, base_url):
             lastmod = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         except:
             pass
-        urls.append(f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>")
-    
-    sitemap = f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-{chr(10).join(urls)}
-</urlset>
-"""
-    return sitemap
+        add_url(loc, lastmod, "weekly", "0.8")
+
+    return ET.tostring(urlset, encoding="unicode", xml_declaration=True)
 
 def main():
     POSTS_DIR.mkdir(exist_ok=True)

@@ -30,6 +30,21 @@ jobs:
         env:
           PAGES_BASE_URL: https://evankang1.github.io/blog-mirror/
         run: python scripts/sync.py
+
+      - name: Validate sitemap
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+          root = ET.parse("sitemap.xml").getroot()
+          assert root.tag == f"{namespace}urlset"
+          urls = root.findall(f"{namespace}url")
+          assert urls, "sitemap.xml contains no URLs"
+          assert all(url.find(f"{namespace}loc") is not None for url in urls)
+          assert not root.findall(".//script")
+          print(f"Validated sitemap.xml: {len(urls)} URLs")
+          PY
       
       - name: Commit and push changes
         run: |
