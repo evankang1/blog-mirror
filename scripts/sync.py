@@ -1,55 +1,31 @@
-
-import urllib.request
-import xml.etree.ElementTree as ET
-import os, json, re, html
-from datetime import datetime, timezone
 from pathlib import Path
-import hashlib
+import re
+from datetime import datetime, timezone
 
-BLOG_ID = "kevin-story2009"
-RSS_URL = f"https://rss.blog.naver.com/{BLOG_ID}.xml"
-BASE_DIR = Path(__file__).resolve().parent.parent
-POSTS_DIR = BASE_DIR / "posts"
-POSTS_INDEX_FILE = BASE_DIR / "posts_index.json"
-INDEX_FILE = BASE_DIR / "index.html"
-SITEMAP_FILE = BASE_DIR / "sitemap.xml"
-ROBOTS_FILE = BASE_DIR / "robots.txt"
+BASE_URL = "https://evankang1.github.io/blog-mirror/"
+today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# GitHub Pages URL - can be set via env var PAGES_BASE_URL
-GITHUB_PAGES_BASE = "https://evankang1.github.io/blog-mirror/"
+posts = sorted(Path("posts").glob("*.html"), reverse=True)
+ids = []
+for p in posts:
+    m = re.search(r"(\d+)", p.stem)
+    if m:
+        ids.append(m.group(1))
 
-def fetch_rss():
-    print(f"Fetching {RSS_URL}")
-    req = urllib.request.Request(RSS_URL, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; NaverBlogMirror/1.0)"
-    })
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        data = resp.read()
-    return data
+# 1. 깨끗하게 쓰기
+sitemap_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
+sitemap_content += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+sitemap_content += f'  <url><loc>{BASE_URL}</loc><lastmod>{today}</lastmod></url>\n'
+for pid in ids:
+    sitemap_content += f'  <url><loc>{BASE_URL}posts/{pid}.html</loc><lastmod>{today}</lastmod></url>\n'
+sitemap_content += '</urlset>\n'
 
-def parse_rss(xml_bytes):
-    root = ET.fromstring(xml_bytes)
-    # Naver RSS: rss > channel > item
-    items = []
-    for item in root.findall(".//item"):
-        title = item.findtext("title") or ""
-        link = item.findtext("link") or ""
-        description = item.findtext("description") or ""
-        pubDate = item.findtext("pubDate") or ""
-        guid = item.findtext("guid") or link
-        # logNo extraction from link: https://blog.naver.com/kevin-story2009/123456789
-        m = re.search(r"/(\d+)(?:$|\?|/)", link)
-        log_no = m.group(1) if m else hashlib.md5(link.encode()).hexdigest()[:10]
-        items.append({
-            "title": title,
-            "link": link,
-            "description": description,
-            "pubDate": pubDate,
-            "guid": guid,
-            "log_no": log_no
-        })
-    return items
+# 2. 혹시 모를 script 태그 강제 제거
+sitemap_content = re.sub(r'<script[^>]*/?>\s*', '', sitemap_content)
+sitemap_content = sitemap_content.replace('</script>', '')
 
+<<<<<<< HEAD
+<<<<<<< HEAD
 def clean_html(raw_desc):
     # Naver RSS description contains HTML, keep it but strip excessive scripts
     # Remove CDATA wrapper if present
@@ -213,3 +189,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+=======
+Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
+Path(".nojekyll").touch()
+print(f"Generated {len(ids)} urls, .nojekyll created")
+>>>>>>> c3c6f0de6d220acc73a108bec5dd565e85cca52e
+=======
+Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
+Path(".nojekyll").touch()
+print(f"Generated {len(ids)} urls, .nojekyll created")
+>>>>>>> c3c6f0de6d220acc73a108bec5dd565e85cca52e
