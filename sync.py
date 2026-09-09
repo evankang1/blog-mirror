@@ -7,11 +7,9 @@ today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def sanitize_xml_or_html(text: str) -> str:
-    # Remove Git merge conflict markers that can be mistaken for XML nodes and make browsers render junk markup.
     text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
     text = re.sub(r'(?m)^=======\n?', '', text)
     text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
-    # Strip stray script tags from generated XML/HTML output, including self-closing forms.
     text = re.sub(r'(?is)<\s*script\b[^>]*>.*?</\s*script\s*>', '', text)
     text = re.sub(r'(?is)<\s*script\b[^>]*?/?>', '', text)
     text = re.sub(r'(?is)</\s*script\s*>', '', text)
@@ -25,7 +23,6 @@ for p in posts:
     if m:
         ids.append(m.group(1))
 
-# 1. 깨끗하게 쓰기
 sitemap_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
 sitemap_content += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
 sitemap_content += f'  <url><loc>{BASE_URL}</loc><lastmod>{today}</lastmod></url>\n'
@@ -34,7 +31,6 @@ for pid in ids:
 sitemap_content += '</urlset>\n'
 
 sitemap_content = sanitize_xml_or_html(sitemap_content)
-
 Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
 Path(".nojekyll").touch()
 print(f"Generated {len(ids)} urls, .nojekyll created")

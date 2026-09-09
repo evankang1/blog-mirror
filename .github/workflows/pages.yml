@@ -1,5 +1,5 @@
-
 name: Deploy Blog Mirror to GitHub Pages
+
 on:
   push:
     branches: ["main"]

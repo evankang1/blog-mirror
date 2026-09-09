@@ -1,9 +1,11 @@
+import os
+import json
+import re
+import html
 import urllib.request
 import xml.etree.ElementTree as ET
-import os, json, re, html
 from datetime import datetime, timezone
 from pathlib import Path
-import hashlib
 
 BLOG_ID = "kevin-story2009"
 RSS_URL = f"https://rss.blog.naver.com/{BLOG_ID}.xml"
@@ -18,7 +20,6 @@ MAX_ITEMS = 100
 
 
 def sanitize_for_output(text):
-    # Remove Git merge markers and any stray script tags before writing static files.
     text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
     text = re.sub(r'(?m)^=======\n?', '', text)
     text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
@@ -61,17 +62,17 @@ def dedupe_and_filter_items(items):
 
 
 def clean_html(raw_desc):
-    # Naver RSS description contains HTML, keep it but strip excessive scripts
-    # Remove CDATA wrapper if present
     return sanitize_for_output(raw_desc)
+
 
 def load_index():
     if POSTS_INDEX_FILE.exists():
         try:
             return json.loads(POSTS_INDEX_FILE.read_text(encoding="utf-8"))
-        except:
+        except Exception:
             return {}
     return {}
+
 
 def save_index(data):
     POSTS_INDEX_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -140,17 +141,16 @@ def make_post_html(item):
     desc = clean_html(item["description"])
     pub = html.escape(item["pubDate"])
     orig_link = html.escape(item["link"])
-    # Simple SEO friendly template
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title_esc} - orion 블로그</title>
-<meta name="description" content="{html.escape(re.sub('<[^<]+?>','', item['description'])[:150])}">
+<meta name="description" content="{html.escape(re.sub('<[^<]+?>', '', item['description'])[:150])}">
 <link rel="canonical" href="{orig_link}">
 <meta property="og:title" content="{title_esc}">
-<meta property="og:description" content="{html.escape(re.sub('<[^<]+?>','', item['description'])[:150])}">
+<meta property="og:description" content="{html.escape(re.sub('<[^<]+?>', '', item['description'])[:150])}">
 <meta property="og:url" content="{orig_link}">
 <meta name="robots" content="index, follow">
 <style>
@@ -180,6 +180,7 @@ h1{{font-size:1.8rem;margin:0 0 8px}}
 """
     return html_content
 
+
 def make_index_html(items):
     sorted_items = dedupe_and_filter_items(items)
     list_html = ""
@@ -189,7 +190,7 @@ def make_index_html(items):
         pub = html.escape(it["pubDate"])
         orig = html.escape(it["link"])
         list_html += f'<li><a href="{link}"><strong>{title}</strong></a><br><span style="color:#666;font-size:.85em">{pub} | <a href="{orig}" target="_blank">원본 보기</a></span></li>\n'
-    
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     index_html = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -220,10 +221,10 @@ a{{color:#03c75a;text-decoration:none}} a:hover{{text-decoration:underline}}
 </body>
 </html>
 """
-    return index_html
+    return sanitize_for_output(index_html)
+
 
 def make_sitemap(items, base_url):
-    # base_url should be like https://username.github.io/repo/
     base_url = base_url.rstrip("/") + "/"
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     cleaned_items = dedupe_and_filter_items(items)
@@ -254,6 +255,7 @@ def make_sitemap(items, base_url):
     xml_text = ET.tostring(urlset, encoding="unicode", xml_declaration=True)
     return sanitize_for_output(xml_text)
 
+
 def main():
     POSTS_DIR.mkdir(exist_ok=True)
     xml_bytes = fetch_rss()
@@ -262,24 +264,21 @@ def main():
     if not items:
         print("No items, check RSS 공개 설정")
         return
-    
+
     index_data = load_index()
-    # save posts
     for it in items:
         path = POSTS_DIR / f"{it['log_no']}.html"
         html_str = make_post_html(it)
         path.write_text(html_str, encoding="utf-8")
         index_data[it["log_no"]] = {"title": it["title"], "link": it["link"], "pubDate": it["pubDate"]}
-    
-    # Determine base URL for sitemap: try env var, fallback to GITHUB_PAGES_BASE
+
     base_url = os.environ.get("PAGES_BASE_URL") or GITHUB_PAGES_BASE
-    items = dedupe_and_filter_items(items)
-    # Write files
     INDEX_FILE.write_text(sanitize_for_output(make_index_html(items)), encoding="utf-8")
     SITEMAP_FILE.write_text(sanitize_for_output(make_sitemap(items, base_url)), encoding="utf-8")
     ROBOTS_FILE.write_text(f"User-agent: *\nAllow: /\nSitemap: {base_url.rstrip('/')}/sitemap.xml\n", encoding="utf-8")
     save_index(index_data)
     print("Done")
+
 
 if __name__ == "__main__":
     main()
