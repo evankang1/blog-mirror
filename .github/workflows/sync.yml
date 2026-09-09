@@ -10,6 +10,7 @@ on:
 
 jobs:
   sync:
+    name: Regenerate mirror and publish clean static output
     runs-on: ubuntu-latest
 
     permissions:
@@ -28,11 +29,14 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Regenerate mirror site and sanitize output
+      - name: Fetch RSS and regenerate mirror pages
         env:
           PAGES_BASE_URL: https://evankang1.github.io/blog-mirror/
         run: |
           python scripts/sync.py
+
+      - name: Sanitize generated HTML and XML output
+        run: |
           python - <<'PY'
           import re
           from pathlib import Path
@@ -79,7 +83,7 @@ jobs:
           print(f'Validated generated pages: {len(urls)} URLs')
           PY
 
-      - name: Commit and push regenerated mirror files
+      - name: Commit regenerated output back to main
         run: |
           git config --local user.email "github-actions@github.com"
           git config --local user.name "github-actions"

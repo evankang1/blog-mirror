@@ -1,74 +1,84 @@
 
-# kevin-story2009 블로그 미러 - 구글 검색 노출용
+# kevin-story2009 블로그 미러
 
-네이버 블로그 `https://blog.naver.com/kevin-story2009/` 글을 구글 검색에 노출시키기 위한 미러 사이트입니다.
+네이버 블로그 글을 GitHub Pages 정적 사이트로 미러링해 검색 노출을 보완하는 프로젝트입니다.
 
-네이버 블로그는 구글봇 수집을 제한해서 구글에서 검색이 잘 안 됩니다. 이 저장소는 RSS를 읽어서 GitHub Pages에 미러 HTML을 만들어 구글에 색인시키는 자동화입니다.
+이 저장소는 네이버 RSS를 읽어서 포스트 HTML, 목록 페이지, sitemap, robots 파일을 생성하고, GitHub Actions로 자동 동기화 및 배포를 수행합니다. 최종적으로 공개 페이지는 정적 HTML 기반으로 유지되며, 생성 직후 병합 마커와 스크립트 주입 흔적을 제거해 깨끗한 결과물을 만듭니다.
 
-## 동작 방식
-1. `Sync Naver Blog Mirror` 워크플로가 `push` 또는 매일 KST 09:10에 `scripts/sync.py` 실행
-2. `https://rss.blog.naver.com/kevin-story2009.xml` 에서 최신 글을 읽고, 중복/무효 링크/형식이 이상한 항목을 필터링
-3. `posts/{글번호}.html` 생성, `index.html`, `sitemap.xml`, `robots.txt`를 다시 생성
-4. 생성 직후 merge conflict 마커와 `<script>` 태그를 정리해서 정적 페이지를 깨끗하게 유지
-5. 자동 커밋 & 푸시 → `Deploy Blog Mirror to GitHub Pages` 워크플로가 Pages 배포 → 구글이 sitemap 크롤링
+## 현재 자동화 흐름
 
-### 현재 자동화 기준
+1. `Sync Naver Blog Mirror` 워크플로가 `main` 브랜치의 `push`, 수동 실행, 또는 매일 UTC 00:10 (KST 09:10) 에 실행됩니다.
+2. `scripts/sync.py`가 네이버 RSS를 가져와 최신 포스트를 파싱하고, 중복 링크와 비정상 항목을 필터링합니다.
+3. `posts/{글번호}.html`, `index.html`, `sitemap.xml`, `robots.txt`를 새로 생성합니다.
+4. 생성 직후 HTML/XML 전용 sanitize 로직이 실행되어 Git merge marker, `<script>` 태그, 의도치 않은 스크립트 블록을 제거합니다.
+5. 생성 결과를 검증하고, 변경 사항이 있으면 자동 커밋 후 같은 브랜치에 push합니다.
+6. `Deploy Blog Mirror to GitHub Pages` 워크플로가 실행되어 정적 사이트를 GitHub Pages에 배포합니다.
+
+### 현재 기준
 - 동기화 워크플로: `.github/workflows/sync.yml` (`Sync Naver Blog Mirror`)
 - 배포 워크플로: `.github/workflows/pages.yml` (`Deploy Blog Mirror to GitHub Pages`)
-- 실행 시점: `main` 브랜치 push 시 + 매일 UTC 00:10 (KST 09:10)
-- 생성물 검증: `index.html`과 `sitemap.xml` 에서 병합 마커와 script 태그가 없는지 확인
-- sitemap 정리 규칙: 중복 URL 제거, 최신 순 정렬, 상위 100개 항목만 유지
+- 트리거: `main` 브랜치 push, `workflow_dispatch`, 매일 UTC 00:10
+- 유효성 검사: `index.html`과 `sitemap.xml`에서 병합 마커와 `<script>` 태그가 없는지 확인
+- 정리 규칙: 중복 URL 제거, 최신순 정렬, 상위 100개 항목 유지
 
-## 최초 1회 설정 (5분)
+## 초기 설정
 
-### 1. GitHub 저장소 만들기
-1. GitHub에서 `blog-mirror` 라는 이름으로 **Public** 저장소 생성
-2. 이 폴더의 모든 파일을 그대로 업로드 (drag & drop)
+### 1. 저장소 준비
+1. GitHub에서 `blog-mirror` 저장소를 생성합니다.
+2. 이 폴더의 파일을 그대로 업로드합니다.
    - `scripts/sync.py`
    - `.github/workflows/sync.yml`
-   - `robots.txt` 등
+   - `.github/workflows/pages.yml`
+   - `robots.txt` 및 기타 정적 파일
 
-### 2. Pages 켜기
-- 저장소 Settings → Pages → Source: **Deploy from a branch**, Branch: **main** / **/(root)** 선택 → Save
+### 2. GitHub Pages 활성화
+- 저장소 Settings → Pages → Source: **Deploy from a branch**
+- Branch: **main** / **/(root)**
+- Save
 
-### 3. Actions 권한 켜기
-- Settings → Actions → General → Workflow permissions → **Read and write permissions** 체크 → Save
+### 3. GitHub Actions 권한 설정
+- Settings → Actions → General → Workflow permissions
+- **Read and write permissions** 활성화
+- Save
 
-### 4. 첫 실행
-- Actions 탭 → "Sync Naver Blog Mirror" → **Run workflow** 버튼 클릭
-- 1분 후 `https://당신의아이디.github.io/blog-mirror/` 접속 확인
+### 4. 첫 동기화 실행
+- Actions 탭에서 `Sync Naver Blog Mirror`를 선택해 **Run workflow** 실행
+- 잠시 후 공개 페이지가 생성됩니다.
 
-### 5. 구글 서치콘솔에 제출
-1. https://search.google.com/search-console 접속 → 속성 추가 (URL 접두어) → `https://당신의아이디.github.io/blog-mirror/` 입력
-2. HTML 파일 방식 확인 (GitHub Pages는 파일 업로드 가능)
-3. 좌측 Sitemaps → `sitemap.xml` 입력 → 제출
+### 5. Google Search Console 제출
+1. https://search.google.com/search-console 에 접속
+2. 속성 추가 → URL 접두어 방식으로 `https://당신의아이디.github.io/blog-mirror/` 등록
+3. Sitemaps 탭에서 `sitemap.xml` 제출
 
-며칠 뒤 구글에서 `site:당신의아이디.github.io` 검색하면 글이 잡힙니다.
+구글 색인 반영은 보통 며칠 걸릴 수 있습니다.
 
-## 로컬 테스트
+## 로컬 실행
+
 ```bash
-python scripts/sync.py
+python3 scripts/sync.py
 ```
-이 명령으로 `index.html`, `sitemap.xml`, `posts/` 내용을 다시 생성합니다. 생성 후에는 브라우저에서 `index.html`을 열어 목록과 sitemap 구조를 확인하면 됩니다.
+
+이 명령으로 포스트 HTML, 인덱스, sitemap, robots 파일을 다시 생성할 수 있습니다. 생성 후에는 브라우저에서 `index.html` 또는 공개 URL을 열어 목록과 sitemap 구조를 확인하면 됩니다.
+
+## 운영 체크리스트
+
+배포 전 또는 수동 점검 시 아래 항목을 확인하면 안전합니다.
+
+- [ ] 로컬에서 `python3 scripts/sync.py` 실행이 정상 종료
+- [ ] `index.html` 상단에 merge marker가 없는지 확인
+- [ ] `sitemap.xml`에서 `<script>` 태그와 `<<<<<<<` / `>>>>>>>` 문자열이 없는지 확인
+- [ ] `posts/` 디렉터리에 최신 글 번호의 HTML이 생성되었는지 확인
+- [ ] `main` 브랜치 기준으로 최신 상태인지 확인
+- [ ] GitHub Actions에서 `Sync Naver Blog Mirror`가 성공했는지 확인
+- [ ] Pages 배포 워크플로 `Deploy Blog Mirror to GitHub Pages`가 정상 완료되었는지 확인
+- [ ] 공개 주소에 접속해 페이지가 정상 노출되는지 확인
+- [ ] Search Console에서 sitemap 재전송이 필요한 경우 수행
 
 ## 문제 해결
-- 글이 안 올라옴: 네이버 블로그 관리 → 기본 설정 → RSS 공개 허용 확인
-- sitemap이 비정상적: `.github/workflows/sync.yml`의 검증 단계 또는 `scripts/sync.py`의 sanitize 로직 확인
-- 구글에 안 잡힘: 서치콘솔에서 URL 검사 → 색인 생성 요청
-- HTML 상단에 이상한 텍스트가 보임: merge conflict 마커와 `<script>` 태그가 남았는지 확인하고, `scripts/sync.py`의 sanitize 함수 재검증
 
-## 운영 메모: 배포 전 체크리스트
+- RSS 글이 안 보임: 네이버 블로그 설정에서 RSS 공개가 활성화되어 있는지 확인
+- sitemap이 이상함: `.github/workflows/sync.yml` 검증 단계와 `scripts/sync.py`의 sanitize 로직 재확인
+- HTML 상단에 이상한 텍스트가 보임: merge marker 혹은 `<script>` 태그가 남아 있지 않은지 검사
+- Google에서 안 잡힘: Search Console의 URL 검사와 sitemap 재제출 수행
 
-다음 항목을 브랜치 배포 전에 확인하면 안전합니다.
-
-- [ ] 로컬/CI에서 `python scripts/sync.py` 실행 후 정상 종료
-- [ ] `index.html` 상단에 merge conflict 마커가 없는지 확인
-- [ ] `sitemap.xml`에서 `<script>` 태그와 `<<<<<<<` / `>>>>>>>` 문자열이 없는지 확인
-- [ ] `posts/` 디렉터리에 최신 글 번호 HTML이 생성되었는지 확인
-- [ ] 브랜치가 `main` 기준으로 최신 상태인지 확인
-- [ ] GitHub Actions에서 `Sync Naver Blog Mirror` 워크플로가 성공했는지 확인
-- [ ] Pages 배포 워크플로 `Deploy Blog Mirror to GitHub Pages`가 정상 완료되었는지 확인
-- [ ] 공개 페이지 주소가 정상 접속되는지 확인
-- [ ] Google Search Console에 sitemap 재제출이 필요한 경우 수행
-
-> 운영 기준: 배포 전에는 생성물 검증을 우선하고, 마지막에 Pages 배포 결과를 확인한 뒤 공개 URL과 sitemap을 검증한다.
+> 현재 운영 기준: 정적 파일 생성 → sanitize → validation → 자동 커밋/푸시 → Pages 배포 순서로 진행합니다.

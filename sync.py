@@ -32,5 +32,7 @@ sitemap_content += '</urlset>\n'
 
 sitemap_content = sanitize_xml_or_html(sitemap_content)
 Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
+versioned_name = f"sitemap-v{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xml"
+Path(versioned_name).write_text(sitemap_content, encoding="utf-8")
 Path(".nojekyll").touch()
-print(f"Generated {len(ids)} urls, .nojekyll created")
+print(f"Generated {len(ids)} urls, versioned sitemap {versioned_name}, .nojekyll created")

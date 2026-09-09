@@ -1,3 +1,4 @@
 User-agent: *
 Allow: /
+Sitemap: https://evankang1.github.io/blog-mirror/sitemap-v20260909-033024.xml
 Sitemap: https://evankang1.github.io/blog-mirror/sitemap.xml

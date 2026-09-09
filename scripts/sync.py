@@ -256,6 +256,17 @@ def make_sitemap(items, base_url):
     return sanitize_for_output(xml_text)
 
 
+def write_sitemaps(items, base_url):
+    xml_text = make_sitemap(items, base_url)
+    base = base_url.rstrip("/")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    versioned_name = f"sitemap-v{timestamp}.xml"
+    versioned_path = BASE_DIR / versioned_name
+    versioned_path.write_text(xml_text, encoding="utf-8")
+    SITEMAP_FILE.write_text(xml_text, encoding="utf-8")
+    return versioned_name, base
+
+
 def main():
     POSTS_DIR.mkdir(exist_ok=True)
     xml_bytes = fetch_rss()
@@ -274,9 +285,16 @@ def main():
 
     base_url = os.environ.get("PAGES_BASE_URL") or GITHUB_PAGES_BASE
     INDEX_FILE.write_text(sanitize_for_output(make_index_html(items)), encoding="utf-8")
-    SITEMAP_FILE.write_text(sanitize_for_output(make_sitemap(items, base_url)), encoding="utf-8")
-    ROBOTS_FILE.write_text(f"User-agent: *\nAllow: /\nSitemap: {base_url.rstrip('/')}/sitemap.xml\n", encoding="utf-8")
+    versioned_name, base = write_sitemaps(items, base_url)
+    robots_lines = [
+        "User-agent: *",
+        "Allow: /",
+        f"Sitemap: {base}/{versioned_name}",
+        f"Sitemap: {base}/sitemap.xml",
+    ]
+    ROBOTS_FILE.write_text("\n".join(robots_lines) + "\n", encoding="utf-8")
     save_index(index_data)
+    print(f"Sitemaps written: {versioned_name} and sitemap.xml")
     print("Done")
 
 

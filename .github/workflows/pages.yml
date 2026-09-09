@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Publish generated static site
+    name: Publish the generated static site
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
