@@ -11,10 +11,10 @@ def sanitize_xml_or_html(text: str) -> str:
     text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
     text = re.sub(r'(?m)^=======\n?', '', text)
     text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
-    # Strip stray script tags from generated XML/HTML output.
-    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<script[^>]*/?>\s*', '', text, flags=re.IGNORECASE)
-    text = text.replace('</script>', '')
+    # Strip stray script tags from generated XML/HTML output, including self-closing forms.
+    text = re.sub(r'(?is)<\s*script\b[^>]*>.*?</\s*script\s*>', '', text)
+    text = re.sub(r'(?is)<\s*script\b[^>]*?/?>', '', text)
+    text = re.sub(r'(?is)</\s*script\s*>', '', text)
     return text
 
 

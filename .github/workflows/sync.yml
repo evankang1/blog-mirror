@@ -42,9 +42,9 @@ jobs:
               text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
               text = re.sub(r'(?m)^=======\n?', '', text)
               text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
-              text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
-              text = re.sub(r'<script[^>]*/?>\s*', '', text, flags=re.IGNORECASE)
-              text = text.replace('</script>', '')
+              text = re.sub(r'(?is)<\s*script\b[^>]*>.*?</\s*script\s*>', '', text)
+              text = re.sub(r'(?is)<\s*script\b[^>]*?/?>', '', text)
+              text = re.sub(r'(?is)</\s*script\s*>', '', text)
               path.write_text(text, encoding='utf-8')
 
           for target in [Path('index.html'), Path('sitemap.xml'), Path('robots.txt')]:

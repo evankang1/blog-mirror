@@ -18,12 +18,13 @@ MAX_ITEMS = 100
 
 
 def sanitize_for_output(text):
+    # Remove Git merge markers and any stray script tags before writing static files.
     text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
     text = re.sub(r'(?m)^=======\n?', '', text)
     text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
-    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<script[^>]*/?>\s*', '', text, flags=re.IGNORECASE)
-    text = text.replace('</script>', '')
+    text = re.sub(r'(?is)<\s*script\b[^>]*>.*?</\s*script\s*>', '', text)
+    text = re.sub(r'(?is)<\s*script\b[^>]*?/?>', '', text)
+    text = re.sub(r'(?is)</\s*script\s*>', '', text)
     return text
 
 
