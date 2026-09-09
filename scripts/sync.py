@@ -14,11 +14,55 @@ INDEX_FILE = BASE_DIR / "index.html"
 SITEMAP_FILE = BASE_DIR / "sitemap.xml"
 ROBOTS_FILE = BASE_DIR / "robots.txt"
 GITHUB_PAGES_BASE = "https://evankang1.github.io/blog-mirror/"
+MAX_ITEMS = 100
+
+
+def sanitize_for_output(text):
+    text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
+    text = re.sub(r'(?m)^=======\n?', '', text)
+    text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<script[^>]*/?>\s*', '', text, flags=re.IGNORECASE)
+    text = text.replace('</script>', '')
+    return text
+
+
+def parse_pub_date(value):
+    if not value:
+        return None
+    for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(value, fmt).astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def dedupe_and_filter_items(items):
+    seen = set()
+    cleaned = []
+    for item in sorted(items, key=lambda x: (parse_pub_date(x.get("pubDate")) or datetime.min.replace(tzinfo=timezone.utc), x.get("title", "")), reverse=True):
+        title = (item.get("title") or "").strip()
+        link = (item.get("link") or "").strip()
+        if not title or not link:
+            continue
+        if not link.startswith("http"):
+            continue
+        log_no = item.get("log_no") or re.search(r"/(\d+)(?:\?.*)?$", link)
+        key = log_no.group(1) if isinstance(log_no, re.Match) else (str(log_no) if log_no else link)
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(item)
+        if len(cleaned) >= MAX_ITEMS:
+            break
+    return cleaned
+
 
 def clean_html(raw_desc):
     # Naver RSS description contains HTML, keep it but strip excessive scripts
     # Remove CDATA wrapper if present
-    return raw_desc
+    return sanitize_for_output(raw_desc)
 
 def load_index():
     if POSTS_INDEX_FILE.exists():
@@ -30,6 +74,65 @@ def load_index():
 
 def save_index(data):
     POSTS_INDEX_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def fetch_rss():
+    req = urllib.request.Request(
+        RSS_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; blog-mirror-sync/1.0; +https://github.com/evankang1/blog-mirror)",
+            "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=30) as response:
+        return response.read()
+
+
+def parse_rss(xml_bytes):
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return []
+
+    items = []
+    for node in root.findall(".//item"):
+        title = (node.findtext("title") or "").strip()
+        link = (node.findtext("link") or "").strip()
+        description = node.findtext("description") or ""
+        pub_date = (node.findtext("pubDate") or "").strip()
+        guid = (node.findtext("guid") or "").strip()
+
+        if not link and guid:
+            link = guid
+        if not title and guid:
+            title = guid
+
+        log_no = None
+        for candidate in (link, guid):
+            m = re.search(r"/(\d+)(?:\?.*)?$", candidate or "")
+            if m:
+                log_no = m.group(1)
+                break
+        if not log_no:
+            m = re.search(r"(\d{12,})", link or guid or "")
+            if m:
+                log_no = m.group(1)
+
+        if not link or not title:
+            continue
+        if "blog.naver.com" not in link and "naver.com" not in link:
+            continue
+
+        items.append({
+            "title": re.sub(r"\s+", " ", title),
+            "link": link,
+            "description": sanitize_for_output(description),
+            "pubDate": pub_date,
+            "log_no": log_no or re.sub(r"\D+", "", link)[:20],
+        })
+
+    return dedupe_and_filter_items(items)
+
 
 def make_post_html(item):
     title_esc = html.escape(item["title"])
@@ -77,8 +180,7 @@ h1{{font-size:1.8rem;margin:0 0 8px}}
     return html_content
 
 def make_index_html(items):
-    # sort by pubDate desc
-    sorted_items = sorted(items, key=lambda x: x.get("pubDate",""), reverse=True)
+    sorted_items = dedupe_and_filter_items(items)
     list_html = ""
     for it in sorted_items:
         title = html.escape(it["title"])
@@ -121,9 +223,9 @@ a{{color:#03c75a;text-decoration:none}} a:hover{{text-decoration:underline}}
 
 def make_sitemap(items, base_url):
     # base_url should be like https://username.github.io/repo/
-    if not base_url.endswith("/"):
-        base_url += "/"
+    base_url = base_url.rstrip("/") + "/"
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cleaned_items = dedupe_and_filter_items(items)
 
     ET.register_namespace("", "http://www.sitemaps.org/schemas/sitemap/0.9")
     urlset = ET.Element("{http://www.sitemaps.org/schemas/sitemap/0.9}urlset")
@@ -136,19 +238,20 @@ def make_sitemap(items, base_url):
         ET.SubElement(url, "{http://www.sitemaps.org/schemas/sitemap/0.9}priority").text = priority
 
     add_url(base_url, now_iso, "daily", "1.0")
-    for it in items:
+    seen_locs = {base_url}
+    for it in cleaned_items:
         loc = f"{base_url}posts/{it['log_no']}.html"
-        # try parse pubDate to iso
+        if loc in seen_locs:
+            continue
+        seen_locs.add(loc)
         lastmod = now_iso
-        try:
-            # Naver pubDate format: Wed, 14 Dec 2023 17:06:00 +0900
-            dt = datetime.strptime(it["pubDate"], "%a, %d %b %Y %H:%M:%S %z")
-            lastmod = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except:
-            pass
+        pub_dt = parse_pub_date(it.get("pubDate"))
+        if pub_dt:
+            lastmod = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         add_url(loc, lastmod, "weekly", "0.8")
 
-    return ET.tostring(urlset, encoding="unicode", xml_declaration=True)
+    xml_text = ET.tostring(urlset, encoding="unicode", xml_declaration=True)
+    return sanitize_for_output(xml_text)
 
 def main():
     POSTS_DIR.mkdir(exist_ok=True)
@@ -169,9 +272,10 @@ def main():
     
     # Determine base URL for sitemap: try env var, fallback to GITHUB_PAGES_BASE
     base_url = os.environ.get("PAGES_BASE_URL") or GITHUB_PAGES_BASE
+    items = dedupe_and_filter_items(items)
     # Write files
-    INDEX_FILE.write_text(make_index_html(items), encoding="utf-8")
-    SITEMAP_FILE.write_text(make_sitemap(items, base_url), encoding="utf-8")
+    INDEX_FILE.write_text(sanitize_for_output(make_index_html(items)), encoding="utf-8")
+    SITEMAP_FILE.write_text(sanitize_for_output(make_sitemap(items, base_url)), encoding="utf-8")
     ROBOTS_FILE.write_text(f"User-agent: *\nAllow: /\nSitemap: {base_url.rstrip('/')}/sitemap.xml\n", encoding="utf-8")
     save_index(index_data)
     print("Done")

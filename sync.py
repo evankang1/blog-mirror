@@ -5,6 +5,19 @@ from datetime import datetime, timezone
 BASE_URL = "https://evankang1.github.io/blog-mirror/"
 today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+
+def sanitize_xml_or_html(text: str) -> str:
+    # Remove Git merge conflict markers that can be mistaken for XML nodes and make browsers render junk markup.
+    text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
+    text = re.sub(r'(?m)^=======\n?', '', text)
+    text = re.sub(r'(?m)^>>>>>>>.*\n?', '', text)
+    # Strip stray script tags from generated XML/HTML output.
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<script[^>]*/?>\s*', '', text, flags=re.IGNORECASE)
+    text = text.replace('</script>', '')
+    return text
+
+
 posts = sorted(Path("posts").glob("*.html"), reverse=True)
 ids = []
 for p in posts:
@@ -20,9 +33,7 @@ for pid in ids:
     sitemap_content += f'  <url><loc>{BASE_URL}posts/{pid}.html</loc><lastmod>{today}</lastmod></url>\n'
 sitemap_content += '</urlset>\n'
 
-# 2. 혹시 모를 script 태그 강제 제거
-sitemap_content = re.sub(r'<script[^>]*/?>\s*', '', sitemap_content)
-sitemap_content = sitemap_content.replace('</script>', '')
+sitemap_content = sanitize_xml_or_html(sitemap_content)
 
 Path("sitemap.xml").write_text(sitemap_content, encoding="utf-8")
 Path(".nojekyll").touch()

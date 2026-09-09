@@ -1,5 +1,5 @@
 
-name: Deploy static site to Pages
+name: Deploy Blog Mirror to GitHub Pages
 on:
   push:
     branches: ["main"]
@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   deploy:
+    name: Publish generated static site
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
