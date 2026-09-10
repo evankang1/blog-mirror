@@ -19,6 +19,14 @@ GITHUB_PAGES_BASE = "https://evankang1.github.io/blog-mirror/"
 MAX_ITEMS = 100
 
 
+def pages_base_url():
+    return (os.environ.get("PAGES_BASE_URL") or GITHUB_PAGES_BASE).rstrip("/") + "/"
+
+
+def clean_naver_url(url):
+    return (url or "").split("?")[0]
+
+
 def sanitize_for_output(text):
     text = re.sub(r'(?m)^<<<<<<<.*\n?', '', text)
     text = re.sub(r'(?m)^=======\n?', '', text)
@@ -127,7 +135,7 @@ def parse_rss(xml_bytes):
 
         items.append({
             "title": re.sub(r"\s+", " ", title),
-            "link": link,
+            "link": clean_naver_url(link),
             "description": sanitize_for_output(description),
             "pubDate": pub_date,
             "log_no": log_no or re.sub(r"\D+", "", link)[:20],
@@ -136,22 +144,24 @@ def parse_rss(xml_bytes):
     return dedupe_and_filter_items(items)
 
 
-def make_post_html(item):
+def make_post_html(item, base_url):
     title_esc = html.escape(item["title"])
     desc = clean_html(item["description"])
     pub = html.escape(item["pubDate"])
-    orig_link = html.escape(item["link"])
+    orig_link = html.escape(clean_naver_url(item["link"]))
+    mirror_url = html.escape(f"{base_url.rstrip('/')}/posts/{item['log_no']}.html")
+    plain_desc = html.escape(re.sub('<[^<]+?>', '', item['description'])[:150])
     html_content = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title_esc} - orion 블로그</title>
-<meta name="description" content="{html.escape(re.sub('<[^<]+?>', '', item['description'])[:150])}">
-<link rel="canonical" href="{orig_link}">
+<meta name="description" content="{plain_desc}">
+<link rel="canonical" href="{mirror_url}">
 <meta property="og:title" content="{title_esc}">
-<meta property="og:description" content="{html.escape(re.sub('<[^<]+?>', '', item['description'])[:150])}">
-<meta property="og:url" content="{orig_link}">
+<meta property="og:description" content="{plain_desc}">
+<meta property="og:url" content="{mirror_url}">
 <meta name="robots" content="index, follow">
 <style>
 body{{font-family:-apple-system,BlinkMacSystemFont,'Noto Sans KR',sans-serif;max-width:760px;margin:0 auto;padding:24px;line-height:1.7;color:#222}}
@@ -181,14 +191,15 @@ h1{{font-size:1.8rem;margin:0 0 8px}}
     return html_content
 
 
-def make_index_html(items):
+def make_index_html(items, base_url):
     sorted_items = dedupe_and_filter_items(items)
+    home_url = html.escape(base_url.rstrip("/") + "/")
     list_html = ""
     for it in sorted_items:
         title = html.escape(it["title"])
         link = f"posts/{it['log_no']}.html"
         pub = html.escape(it["pubDate"])
-        orig = html.escape(it["link"])
+        orig = html.escape(clean_naver_url(it["link"]))
         list_html += f'<li><a href="{link}"><strong>{title}</strong></a><br><span style="color:#666;font-size:.85em">{pub} | <a href="{orig}" target="_blank">원본 보기</a></span></li>\n'
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -199,6 +210,7 @@ def make_index_html(items):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>orion (kevin-story2009) 블로그 미러</title>
 <meta name="description" content="네이버 블로그 kevin-story2009 (orion) 의 구글 검색 노출용 미러 사이트입니다. 골프, 반려동물, 러닝, AI 이야기">
+<link rel="canonical" href="{home_url}">
 <meta name="robots" content="index, follow">
 <style>
 body{{font-family:-apple-system,BlinkMacSystemFont,'Noto Sans KR',sans-serif;max-width:760px;margin:0 auto;padding:24px;line-height:1.7}}
@@ -258,13 +270,10 @@ def make_sitemap(items, base_url):
 
 def write_sitemaps(items, base_url):
     xml_text = make_sitemap(items, base_url)
-    base = base_url.rstrip("/")
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    versioned_name = f"sitemap-v{timestamp}.xml"
-    versioned_path = BASE_DIR / versioned_name
-    versioned_path.write_text(xml_text, encoding="utf-8")
     SITEMAP_FILE.write_text(xml_text, encoding="utf-8")
-    return versioned_name, base
+    for stale in BASE_DIR.glob("sitemap-v*.xml"):
+        stale.unlink(missing_ok=True)
+    return "sitemap.xml", base_url.rstrip("/")
 
 
 def main():
@@ -276,25 +285,24 @@ def main():
         print("No items, check RSS 공개 설정")
         return
 
+    base_url = pages_base_url()
     index_data = load_index()
     for it in items:
         path = POSTS_DIR / f"{it['log_no']}.html"
-        html_str = make_post_html(it)
+        html_str = make_post_html(it, base_url)
         path.write_text(html_str, encoding="utf-8")
         index_data[it["log_no"]] = {"title": it["title"], "link": it["link"], "pubDate": it["pubDate"]}
 
-    base_url = os.environ.get("PAGES_BASE_URL") or GITHUB_PAGES_BASE
-    INDEX_FILE.write_text(sanitize_for_output(make_index_html(items)), encoding="utf-8")
+    INDEX_FILE.write_text(sanitize_for_output(make_index_html(items, base_url)), encoding="utf-8")
     versioned_name, base = write_sitemaps(items, base_url)
     robots_lines = [
         "User-agent: *",
         "Allow: /",
-        f"Sitemap: {base}/{versioned_name}",
         f"Sitemap: {base}/sitemap.xml",
     ]
     ROBOTS_FILE.write_text("\n".join(robots_lines) + "\n", encoding="utf-8")
     save_index(index_data)
-    print(f"Sitemaps written: {versioned_name} and sitemap.xml")
+    print(f"Sitemaps written: {versioned_name}")
     print("Done")
 
 
