@@ -51,7 +51,10 @@ jobs:
               text = re.sub(r'(?is)</\s*script\s*>', '', text)
               path.write_text(text, encoding='utf-8')
 
-          for target in [Path('index.html'), Path('sitemap.xml'), Path('robots.txt')]:
+          # Include versioned sitemaps too: robots.txt may refer to a file
+          # created in the same run.
+          targets = [Path('index.html'), Path('robots.txt'), *Path('.').glob('sitemap*.xml')]
+          for target in targets:
               if target.exists():
                   sanitize(target)
           print('Generated and sanitized static pages')
@@ -69,18 +72,21 @@ jobs:
           assert '<<<<<<<' not in html and '>>>>>>>' not in html, 'merge markers remain in index.html'
           assert '<script' not in html.lower(), 'script tags remain in index.html'
 
-          sitemap_path = Path('sitemap.xml')
-          xml = sitemap_path.read_text(encoding='utf-8')
-          assert '<<<<<<<' not in xml and '>>>>>>>' not in xml, 'merge markers remain in sitemap.xml'
-          assert '<script' not in xml.lower(), 'script tags remain in sitemap.xml'
-
           namespace = '{http://www.sitemaps.org/schemas/sitemap/0.9}'
-          root = ET.parse(sitemap_path).getroot()
-          assert root.tag == f'{namespace}urlset', 'Invalid sitemap root'
-          urls = root.findall(f'{namespace}url')
-          assert urls, 'sitemap.xml contains no URLs'
-          assert all(url.find(f'{namespace}loc') is not None for url in urls), 'Sitemap loc entries missing'
-          print(f'Validated generated pages: {len(urls)} URLs')
+          for sitemap_path in Path('.').glob('sitemap*.xml'):
+              xml = sitemap_path.read_text(encoding='utf-8')
+              assert '<<<<<<<' not in xml and '>>>>>>>' not in xml, f'merge markers remain in {sitemap_path}'
+              assert '<script' not in xml.lower(), f'script tags remain in {sitemap_path}'
+
+              root = ET.parse(sitemap_path).getroot()
+              assert root.tag == f'{namespace}urlset', f'Invalid sitemap root in {sitemap_path}'
+              # Reject every direct child other than a sitemap <url>, rather
+              # than merely looking for the string "<script".
+              assert all(child.tag == f'{namespace}url' for child in root), f'Unexpected sitemap element in {sitemap_path}'
+              urls = root.findall(f'{namespace}url')
+              assert urls, f'{sitemap_path} contains no URLs'
+              assert all(url.find(f'{namespace}loc') is not None for url in urls), f'Sitemap loc entries missing in {sitemap_path}'
+              print(f'Validated {sitemap_path}: {len(urls)} URLs')
           PY
 
       - name: Commit regenerated output back to main

@@ -264,8 +264,11 @@ def make_sitemap(items, base_url):
             lastmod = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         add_url(loc, lastmod, "weekly", "0.8")
 
-    xml_text = ET.tostring(urlset, encoding="unicode", xml_declaration=True)
-    return sanitize_for_output(xml_text)
+    # Build the sitemap exclusively from an ElementTree we control.  Do not
+    # post-process it as generic HTML: a sitemap must contain only <url>
+    # children, and this keeps stray tags (for example <script/>) out even if
+    # an RSS description or a merge artifact contains markup.
+    return ET.tostring(urlset, encoding="unicode", xml_declaration=True)
 
 
 def write_sitemaps(items, base_url):
