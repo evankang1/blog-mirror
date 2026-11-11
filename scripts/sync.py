@@ -2,9 +2,12 @@ import os
 import json
 import re
 import html
+from html.parser import HTMLParser
 import urllib.request
+from urllib.parse import urlencode
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 BLOG_ID = "kevin-story2009"
@@ -98,6 +101,96 @@ def fetch_rss():
         return response.read()
 
 
+class NaverArticleExtractor(HTMLParser):
+    """Keep the complete SmartEditor article fragment from a Naver post page."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.parts = []
+        self.depth = 0
+        self.found = False
+        self.done = False
+
+    def handle_starttag(self, tag, attrs):
+        raw = self.get_starttag_text() or f"<{tag}>"
+        if self.done:
+            return
+        if self.found:
+            self.parts.append(raw)
+            if tag == "div":
+                self.depth += 1
+            return
+        if tag == "div":
+            classes = dict(attrs).get("class", "").split()
+            if "se-main-container" in classes:
+                self.found = True
+                self.depth = 1
+                self.parts.append(raw)
+
+    def handle_startendtag(self, tag, attrs):
+        if self.found and not self.done:
+            self.parts.append(self.get_starttag_text() or f"<{tag}/>")
+
+    def handle_endtag(self, tag):
+        if not self.found or self.done:
+            return
+        self.parts.append(f"</{tag}>")
+        if tag == "div":
+            self.depth -= 1
+            if self.depth == 0:
+                self.done = True
+
+    def handle_data(self, data):
+        if self.found and not self.done:
+            self.parts.append(data)
+
+    def handle_entityref(self, name):
+        if self.found and not self.done:
+            self.parts.append(f"&{name};")
+
+    def handle_charref(self, name):
+        if self.found and not self.done:
+            self.parts.append(f"&#{name};")
+
+    def handle_comment(self, data):
+        if self.found and not self.done:
+            self.parts.append(f"<!--{data}-->")
+
+
+def fetch_naver_article(item):
+    """Fetch the full public article; return None when Naver only serves a preview/error."""
+    params = urlencode({
+        "blogId": BLOG_ID,
+        "logNo": item["log_no"],
+        "redirect": "Dlog",
+        "widgetTypeCall": "true",
+        "noTrackingCode": "true",
+    })
+    req = urllib.request.Request(
+        f"https://blog.naver.com/PostView.naver?{params}",
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; blog-mirror-sync/1.0)",
+            "Referer": f"https://blog.naver.com/{BLOG_ID}/{item['log_no']}",
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            source = response.read().decode("utf-8", errors="replace")
+        extractor = NaverArticleExtractor()
+        extractor.feed(source)
+        if not extractor.done:
+            return None
+        content = sanitize_for_output("".join(extractor.parts)).strip()
+        text_content = re.sub(r"\s+", "", html.unescape(re.sub(r"<[^>]+>", " ", content)))
+        if len(text_content) < 20:
+            return None
+        return content or None
+    except Exception as exc:
+        print(f"Full article fetch failed for {item['log_no']}: {exc}")
+        return None
+
+
 def parse_rss(xml_bytes):
     try:
         root = ET.fromstring(xml_bytes)
@@ -179,7 +272,7 @@ h1{{font-size:1.8rem;margin:0 0 8px}}
 <h1>{title_esc}</h1>
 <div class="meta">{pub} | 원본: <a href="{orig_link}" target="_blank" rel="noopener">{orig_link}</a></div>
 </header>
-<article class="content">
+<article class="content" data-source="naver-full">
 {desc}
 </article>
 <footer style="margin-top:40px;padding-top:16px;border-top:1px solid #eee;color:#888;font-size:.85rem">
@@ -288,14 +381,48 @@ def main():
         print("No items, check RSS 공개 설정")
         return
 
-    base_url = pages_base_url()
     index_data = load_index()
+    current_ids = {item["log_no"] for item in items}
+    historical_items = []
+    for log_no, saved in index_data.items():
+        if log_no in current_ids or not isinstance(saved, dict):
+            continue
+        title = (saved.get("title") or "").strip()
+        link = clean_naver_url(saved.get("link") or "")
+        pub_date = (saved.get("pubDate") or "").strip()
+        if title and link:
+            historical_items.append({
+                "title": title,
+                "link": link,
+                "pubDate": pub_date,
+                "log_no": str(log_no),
+                "description": "",
+            })
+    items = dedupe_and_filter_items(items + historical_items)
+
+    full_article_count = 0
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for item, article in zip(items, executor.map(fetch_naver_article, items)):
+            if article:
+                item["description"] = article
+                full_article_count += 1
+    if full_article_count != len(items):
+        raise RuntimeError(f"Refusing to publish incomplete RSS excerpts: fetched full article content for {full_article_count}/{len(items)} posts")
+    print(f"Fetched full article content for all {full_article_count} posts")
+
+    base_url = pages_base_url()
     for it in items:
         path = POSTS_DIR / f"{it['log_no']}.html"
         html_str = make_post_html(it, base_url)
         path.write_text(html_str, encoding="utf-8")
         index_data[it["log_no"]] = {"title": it["title"], "link": it["link"], "pubDate": it["pubDate"]}
 
+    included_post_ids = {f"{it['log_no']}.html" for it in items}
+    for stale in POSTS_DIR.glob("*.html"):
+        if stale.name not in included_post_ids:
+            stale.unlink()
+
+    index_data = {it["log_no"]: index_data[it["log_no"]] for it in items}
     INDEX_FILE.write_text(sanitize_for_output(make_index_html(items, base_url)), encoding="utf-8")
     versioned_name, base = write_sitemaps(items, base_url)
     robots_lines = [

@@ -4,6 +4,10 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Sync Naver Blog Mirror"]
+    types: [completed]
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -16,6 +20,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     name: Publish the generated static site
     environment:
       name: github-pages
@@ -23,7 +28,73 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/configure-pages@v5
+      - name: Validate the static site and sitemap
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import unquote, urlparse
+          import html as html_lib
+          import re
+          import xml.etree.ElementTree as ET
+
+          root = Path('.')
+          index = root / 'index.html'
+          robots = root / 'robots.txt'
+          assert index.is_file(), 'index.html is missing'
+          assert robots.is_file(), 'robots.txt is missing'
+
+          html = index.read_text(encoding='utf-8')
+          assert re.search(r'<meta\s+name=["\']robots["\']\s+content=["\']index,\s*follow["\']', html, re.I), 'index.html must be indexable'
+          assert '<<<<<<<' not in html and '>>>>>>>' not in html, 'merge marker found in index.html'
+          assert '<script' not in html.lower(), 'unexpected script tag in index.html'
+          canonical = re.search(r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']+)', html, re.I)
+          assert canonical, 'index.html has no canonical URL'
+          site_prefix = urlparse(html_lib.unescape(canonical.group(1))).path.strip('/')
+
+          sitemap_refs = re.findall(r'^Sitemap:\s*(\S+)', robots.read_text(encoding='utf-8'), re.I | re.M)
+          assert sitemap_refs, 'robots.txt does not declare a sitemap'
+          sitemap_paths = {unquote(urlparse(url).path).rstrip('/').split('/')[-1] for url in sitemap_refs}
+          sitemap_files = sorted(root.glob('sitemap*.xml'))
+          assert sitemap_files, 'no sitemap XML file found'
+          assert all(path in sitemap_paths for path in (file.name for file in sitemap_files)), 'robots.txt does not reference every sitemap file'
+
+          ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+          count = 0
+          for sitemap in sitemap_files:
+              xml = sitemap.read_text(encoding='utf-8')
+              assert '<<<<<<<' not in xml and '>>>>>>>' not in xml, f'merge marker found in {sitemap}'
+              assert '<script' not in xml.lower(), f'unexpected script tag in {sitemap}'
+              document = ET.parse(sitemap).getroot()
+              assert document.tag == '{http://www.sitemaps.org/schemas/sitemap/0.9}urlset', f'invalid sitemap root: {sitemap}'
+              urls = document.findall('s:url', ns)
+              assert urls, f'{sitemap} contains no URLs'
+              for entry in urls:
+                  loc = entry.findtext('s:loc', namespaces=ns)
+                  assert loc, f'URL entry has no loc in {sitemap}'
+                  path = unquote(urlparse(loc).path).lstrip('/')
+                  if site_prefix and path.startswith(site_prefix + '/'):
+                      path = path[len(site_prefix) + 1:]
+                  elif site_prefix and path == site_prefix:
+                      path = ''
+                  if path.endswith('/'):
+                      path += 'index.html'
+                  elif not path:
+                      path = 'index.html'
+                  target = root / path
+                  assert target.is_file(), f'sitemap URL has no deployed file: {loc}'
+                  if path.startswith('posts/'):
+                      post = target.read_text(encoding='utf-8')
+                      assert '<article class="content" data-source="naver-full">' in post, f'full article missing in {target}'
+                      article = re.search(r'<article class="content" data-source="naver-full">(.*?)</article>', post, re.S)
+                      assert article, f'article body missing in {target}'
+                      visible_text = re.sub(r'\s+', '', html_lib.unescape(re.sub(r'<[^>]+>', ' ', article.group(1))))
+                      assert len(visible_text) >= 20, f'article body is empty in {target}'
+              count += len(urls)
+          print(f'Validated {len(sitemap_files)} sitemap(s) and {count} URLs')
+          PY
       - uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
